@@ -36,7 +36,6 @@ def load_match_data(match_id):
         'pass_recipient',
     ]
     
-    # Filtrar solo las columnas que existan en los eventos
     available_vars = [col for col in variables if col in events.columns]
     passes = events[available_vars]
 
@@ -67,19 +66,40 @@ except Exception as e:
     st.error(f"Error al conectar con la API de StatsBomb: {e}")
     st.stop()
 
-# Menú lateral para controles
-st.sidebar.header("🕹️ Filtros del Partido")
-
+# -------------------------------------------------------------
+# BARRA DE CONTROL DE TIEMPO (MINUTO A MINUTO) EN LA PANTALLA PRINCIPAL
+# -------------------------------------------------------------
 min_minute = int(final_passes['minute'].min())
 max_minute = int(final_passes['minute'].max())
 
-selected_minute = st.sidebar.slider(
-    "Selecciona el Minuto del Partido:",
-    min_value=min_minute,
-    max_value=max_minute,
-    value=0,
-    step=1
-)
+if 'selected_minute' not in st.session_state:
+    st.session_state.selected_minute = min_minute
+
+st.subheader("⏱️ Control Minuto a Minuto")
+
+col_btn_prev, col_slider, col_btn_next = st.columns([1, 6, 1])
+
+with col_btn_prev:
+    st.write("") # Espaciador para alinear con el slider
+    if st.button("⏮️ -1 Min", use_container_width=True):
+        if st.session_state.selected_minute > min_minute:
+            st.session_state.selected_minute -= 1
+
+with col_slider:
+    selected_minute = st.slider(
+        "Desliza para cambiar de minuto:",
+        min_value=min_minute,
+        max_value=max_minute,
+        key="selected_minute"
+    )
+
+with col_btn_next:
+    st.write("") # Espaciador
+    if st.button("1 Min ⏭️", use_container_width=True):
+        if st.session_state.selected_minute < max_minute:
+            st.session_state.selected_minute += 1
+
+st.divider()
 
 # Pestañas principales
 tab1, tab2, tab3 = st.tabs(["🌱 Campo de Juego", "📊 Resumen del Minuto", "🔍 Diagnóstico de Eventos"])
