@@ -8,30 +8,18 @@ from mplsoccer import Pitch
 from statsbombpy import sb
 
 warnings.filterwarnings('ignore')
-Python
-import warnings
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import streamlit as st
-from mplsoccer import Pitch
-from statsbombpy import sb
 
-warnings.filterwarnings('ignore')
-
-# Configuración de página
+# Configuración inicial de la interfaz
 st.set_page_config(
-    page_title="Visualizador de Pases - StatsBomb", layout="wide"
+    page_title="Visualizador de Pases - StatsBomb",
+    page_icon="⚽",
+    layout="wide"
 )
 
 st.title("⚽ Análisis de Pases con StatsBomb y Streamlit")
-st.write(
-    "Visualización interactiva del mapa de pases de un partido del Mundial Qatar 2022."
-)
+st.markdown("Visualización interactiva de eventos y mapas de pases en partidos de fútbol.")
 
-
-# Función con caché para optimizar la carga de datos
+# Carga de datos con caché para mejorar la velocidad
 @st.cache_data
 def load_match_data(match_id):
     events = sb.events(match_id=match_id)
@@ -47,102 +35,117 @@ def load_match_data(match_id):
         'pass_end_location',
         'pass_recipient',
     ]
-    passes = events[variables]
+    
+    # Filtrar solo las columnas que existan en los eventos
+    available_vars = [col for col in variables if col in events.columns]
+    passes = events[available_vars]
 
-    # Filtrar solo pases
+    # Filtrar únicamente los eventos de pase
     final = passes[passes['type'] == 'Pass'].copy()
     final.reset_index(drop=True, inplace=True)
 
-    # Extraer coordenadas x, y
-    final['x0'] = final.location.apply(lambda x: x[0] if isinstance(x, list) else np.nan)
-    final['y0'] = final.location.apply(lambda x: x[1] if isinstance(x, list) else np.nan)
-    final['x1'] = final.pass_end_location.apply(
-        lambda x: x[0] if isinstance(x, list) else np.nan
-    )
-    final['y1'] = final.pass_end_location.apply(
-        lambda x: x[1] if isinstance(x, list) else np.nan
-    )
+    # Separar coordenadas de origen (x0, y0) y destino (x1, y1)
+    final['x0'] = final.location.apply(lambda x: x[0] if isinstance(x, list) and len(x) >= 2 else np.nan)
+    final['y0'] = final.location.apply(lambda x: x[1] if isinstance(x, list) and len(x) >= 2 else np.nan)
+    
+    if 'pass_end_location' in final.columns:
+        final['x1'] = final.pass_end_location.apply(lambda x: x[0] if isinstance(x, list) and len(x) >= 2 else np.nan)
+        final['y1'] = final.pass_end_location.apply(lambda x: x[1] if isinstance(x, list) and len(x) >= 2 else np.nan)
+        final.drop(columns=['pass_end_location'], inplace=True, errors='ignore')
 
-    final.drop(columns=['location', 'pass_end_location'], inplace=True)
+    final.drop(columns=['location'], inplace=True, errors='ignore')
     return events, final
 
 
-# Cargar datos del partido seleccionado (Match ID: 3857255 -> Japón)
-with st.spinner('Cargando eventos del partido de StatsBomb...'):
-    events, final_passes = load_match_data(3857255)
+# Carga de eventos del partido (Japón vs España - Mundial 2022)
+MATCH_ID = 3857255
 
-# Sidebar / Selectores de usuario
-st.sidebar.header("Opciones de Control")
+try:
+    with st.spinner('Cargando datos del partido desde StatsBomb...'):
+        events, final_passes = load_match_data(MATCH_ID)
+except Exception as e:
+    st.error(f"Error al conectar con la API de StatsBomb: {e}")
+    st.stop()
 
-# Slider para seleccionar el minuto (reemplaza ipywidgets.interact)
+# Menú lateral para controles
+st.sidebar.header("🕹️ Filtros del Partido")
+
 min_minute = int(final_passes['minute'].min())
 max_minute = int(final_passes['minute'].max())
+
 selected_minute = st.sidebar.slider(
-    "Selecciona el Minuto:",
+    "Selecciona el Minuto del Partido:",
     min_value=min_minute,
     max_value=max_minute,
     value=0,
+    step=1
 )
 
-# Sección principal con pestañas
-tab1, tab2, tab3 = st.tabs(
-    ["🌱 Mapa de Pases", "📊 Análisis de Datos", "🔍 Diagnóstico de Datos Faltantes"]
-)
+# Pestañas principales
+tab1, tab2, tab3 = st.tabs(["🌱 Campo de Juego", "📊 Resumen del Minuto", "🔍 Diagnóstico de Eventos"])
 
 with tab1:
-    st.subheader(f"Pases en el Minuto {selected_minute}")
-
-    passes_min = final_passes[final_passes.minute == selected_minute]
+    st.subheader(f"Mapa de Pases en el Minuto {selected_minute}")
+    
+    # Filtrar pases del minuto seleccionado y limpiar coordenadas nulas
+    passes_min = final_passes[final_passes.minute == selected_minute].dropna(subset=['x0', 'y0'])
 
     if passes_min.empty:
-        st.warning(
-            f"No hay registros de pases registrados en el minuto {selected_minute}."
-        )
+        st.info(f"No se registraron pases en el minuto {selected_minute}.")
     else:
-        # Dibujar campo de juego
-        pitch = Pitch(pitch_color='grass', line_color='white', stripe=True)
-        fig, ax = pitch.draw(figsize=(10, 6))
+        # Métricas rápidas
+        col_m1, col_m2 = st.columns(2)
+        teams = passes_min['team'].unique()
+        for idx, team in enumerate(teams):
+            count = len(passes_min[passes_min.team == team])
+            if idx == 0:
+                col_m1.metric(f"Pases {team}", count)
+            else:
+                col_m2.metric(f"Pases {team}", count)
 
+        # Creación del campo con mplsoccer
+        pitch = Pitch(pitch_color='grass', line_color='white', stripe=True)
+        fig, ax = pitch.draw(figsize=(11, 7))
+
+        # Dibujar puntos de origen del pase
         sns.scatterplot(
             data=passes_min,
             x='x0',
             y='y0',
             ax=ax,
             hue='team',
-            s=100,
-            alpha=0.9,
+            s=120,
+            zorder=3
         )
-        plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=2)
 
-        # Mostrar gráfico en Streamlit
+        # Dibujar vectores/flechas del pase si existen coordenadas de destino
+        if 'x1' in passes_min.columns and 'y1' in passes_min.columns:
+            valid_vectors = passes_min.dropna(subset=['x1', 'y1'])
+            if not valid_vectors.empty:
+                pitch.arrows(
+                    valid_vectors.x0, valid_vectors.y0,
+                    valid_vectors.x1, valid_vectors.y1,
+                    ax=ax, color='yellow', alpha=0.6, width=2, headwidth=3
+                )
+
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=2)
         st.pyplot(fig)
 
-    st.subheader("Pases Registrados en este Minuto")
-    st.dataframe(
-        passes_min[
-            ['minute', 'second', 'team', 'player', 'pass_recipient', 'x0', 'y0']
-        ]
-    )
-
 with tab2:
-    st.subheader("Muestra de Datos de Pases Procesados")
-    st.dataframe(final_passes.head(20))
+    st.subheader("Registro de Pases en este Minuto")
+    passes_min = final_passes[final_passes.minute == selected_minute]
+    
+    display_cols = [c for c in ['second', 'team', 'player', 'pass_recipient', 'x0', 'y0', 'x1', 'y1'] if c in passes_min.columns]
+    st.dataframe(passes_min[display_cols], use_container_width=True)
 
-    st.subheader("Columnas Disponibles en los Eventos")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.write("**Columnas relacionadas con 'pass':**")
-        pass_cols = [col for col in events.columns if 'pass' in col]
-        st.write(pass_cols)
-
-    with col2:
-        st.write("**Otras columnas:**")
-        other_cols = [col for col in events.columns if 'pass' not in col]
-        st.write(other_cols[:15])  # Muestra primeros 15
+    st.subheader("Muestra General del Dataset Procesado")
+    st.dataframe(final_passes.head(15), use_container_width=True)
 
 with tab3:
-    st.subheader("Mapa de Calor de Datos Faltantes (Na) en Eventos")
+    st.subheader("Mapa de Valores Faltantes (NaN) en Eventos Generales")
+    
     fig_nulls, ax_nulls = plt.subplots(figsize=(10, 4))
     sns.heatmap(events.isna(), ax=ax_nulls, cbar=False, cmap='Blues')
+    plt.xlabel("Columnas del Evento")
+    plt.ylabel("Registros")
     st.pyplot(fig_nulls)
