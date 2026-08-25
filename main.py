@@ -1,3 +1,13 @@
+import warnings
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import streamlit as st
+from mplsoccer import Pitch
+from statsbombpy import sb
+
+warnings.filterwarnings('ignore')
 Python
 import warnings
 import matplotlib.pyplot as plt
